@@ -1,0 +1,6 @@
+{
+  "name": "LYVO",
+  "description": "Live the moment. Rede social efémera com Vibes de 24h, feed em tempo real Agora e conversas privadas que se autodestroem.",
+  "requestFramePermissions": ["camera", "microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

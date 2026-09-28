@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/* LYVO Anti-Screenshot and Anti-Print Protection */
+@media print {
+  html, body, #root {
+    background-color: #000000 !important;
+    background: #000000 !important;
+    color: #000000 !important;
+  }
+
+  body * {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+
+  body::before {
+    content: "🔒 LYVO ANTI-SCREENSHOT — Impressão e captura bloqueadas.";
+    display: block !important;
+    visibility: visible !important;
+    position: fixed !important;
+    inset: 0 !important;
+    background-color: #000000 !important;
+    color: #444444 !important;
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    text-align: center !important;
+    padding-top: 45vh !important;
+    z-index: 99999999 !important;
+  }
+}
+
+/* Prevent unwanted drag and selection in sensitive views */
+.anti-screenshot-active {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.anti-screenshot-active img,
+.anti-screenshot-active video {
+  -webkit-user-drag: none;
+}
