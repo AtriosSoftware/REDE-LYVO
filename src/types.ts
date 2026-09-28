@@ -42,6 +42,17 @@ export interface Comment {
   hasLiked?: boolean;
 }
 
+export interface AttentionAlert {
+  id: string;
+  vibeId: string;
+  vibeSnippet?: string;
+  emoji: string;
+  reactorName: string;
+  reactorAvatar?: string;
+  createdAt: number;
+  read?: boolean;
+}
+
 export interface VibeItem {
   id: string;
   authorId: string;
@@ -67,6 +78,9 @@ export interface VibeItem {
   isSponsored?: boolean;
   sponsoredCta?: string;
   sponsoredUrl?: string;
+  attentionReactions?: AttentionAlert[];
+  attentionCount?: number;
+  editedAt?: number;
 }
 
 export interface EphemeralMessage {

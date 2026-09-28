@@ -69,14 +69,17 @@ export const Navigation: React.FC<NavigationProps> = ({
         <div className="flex-1 flex items-center justify-center -mt-5">
           <button
             onClick={onOpenCreate}
-            aria-label="Criar nova Vibe"
-            className="group relative flex items-center justify-center w-13 h-13 rounded-full bg-gradient-to-tr from-[#F43F9E] via-[#8B5CF6] to-[#22D3EE] p-[2px] shadow-[0_0_20px_rgba(139,92,246,0.55)] active:scale-95 transition-all hover:scale-105"
+            aria-label="Novo momento ou vibe"
+            title="Criar novo momento"
+            className="group relative flex items-center justify-center w-13 h-13 rounded-full bg-gradient-to-tr from-[#F43F9E] via-[#8B5CF6] to-[#22D3EE] p-[2px] shadow-[0_0_22px_rgba(139,92,246,0.6)] active:scale-90 transition-all duration-300 hover:scale-110 animate-gradient-sweep"
           >
-            <div className="w-full h-full rounded-full bg-[#0D0D14] flex items-center justify-center group-hover:bg-transparent transition-colors">
-              <Plus className="w-6 h-6 text-white transition-transform group-hover:rotate-90 duration-300 stroke-[2.5]" />
+            <div className="w-full h-full rounded-full bg-[#0D0D14] flex items-center justify-center group-hover:bg-[#0D0D14]/30 transition-colors relative overflow-hidden">
+              {/* Shimmer sweep */}
+              <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent pointer-events-none animate-light-shimmer" />
+              <Plus className="w-6 h-6 text-white transition-transform group-hover:rotate-90 duration-500 stroke-[2.8] drop-shadow-[0_0_8px_rgba(255,255,255,0.7)]" />
             </div>
-            {/* Pulsing ring aura */}
-            <span className="absolute -inset-0.5 rounded-full bg-gradient-to-r from-[#F43F9E] to-[#22D3EE] opacity-40 blur-sm group-hover:opacity-75 transition-opacity -z-10" />
+            {/* Ambient breathing aura */}
+            <span className="absolute -inset-1 rounded-full bg-gradient-to-r from-[#F43F9E] via-[#8B5CF6] to-[#22D3EE] opacity-50 blur-md group-hover:opacity-85 transition-opacity -z-10 animate-aura-breath" />
           </button>
         </div>
 

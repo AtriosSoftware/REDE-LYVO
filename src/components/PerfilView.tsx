@@ -12,6 +12,9 @@ import {
   MapPin,
   Lock,
   EyeOff,
+  Eye,
+  Radio,
+  LogOut,
   ShieldAlert
 } from 'lucide-react';
 import { UserProfile, VibeColor, VibeItem } from '../types';
@@ -33,6 +36,8 @@ interface PerfilViewProps {
   onOpenAntiScreenshotModal?: () => void;
   onLogout?: () => void;
   onOpenIntroBanners?: () => void;
+  isRadarVisible?: boolean;
+  onToggleRadarVisible?: () => void;
 }
 
 export const PerfilView: React.FC<PerfilViewProps> = ({
@@ -51,6 +56,8 @@ export const PerfilView: React.FC<PerfilViewProps> = ({
   onOpenAntiScreenshotModal,
   onLogout,
   onOpenIntroBanners,
+  isRadarVisible = true,
+  onToggleRadarVisible,
 }) => {
   const [activeTab, setActiveTab] = useState<'vibes' | 'privacy'>('vibes');
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -95,13 +102,25 @@ export const PerfilView: React.FC<PerfilViewProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={onOpenArchitectureModal}
-            className="p-2 rounded-xl bg-[#181828] border border-[#2B2B3E] text-zinc-300 hover:text-white transition-colors"
-            title="Ver infraestrutura Supabase"
-          >
-            <Database className="w-4 h-4 text-[#22D3EE]" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onOpenArchitectureModal}
+              className="p-2 rounded-xl bg-[#181828] border border-[#2B2B3E] text-zinc-300 hover:text-white transition-colors"
+              title="Ver infraestrutura Supabase"
+            >
+              <Database className="w-4 h-4 text-[#22D3EE]" />
+            </button>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#24151D] hover:bg-rose-600/20 border border-rose-500/30 text-rose-300 hover:text-rose-100 transition-all text-xs font-semibold cursor-pointer active:scale-95 shadow-sm"
+                title="Terminar Sessão (Sair da Conta)"
+              >
+                <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                <span>Sair</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Bio */}
@@ -292,6 +311,52 @@ export const PerfilView: React.FC<PerfilViewProps> = ({
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* Proximity Radar & Ghost Mode Privacy Section */}
+          <div className="p-4 rounded-2xl bg-[#12121E] border border-[#242438] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className={`p-1.5 rounded-lg ${isRadarVisible ? 'bg-[#22D3EE]/20 text-[#22D3EE]' : 'bg-purple-500/20 text-purple-400'}`}>
+                  {isRadarVisible ? <Radio className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-white">Radar de Proximidade</h3>
+                  <p className="text-[10.5px] text-zinc-400">
+                    {isRadarVisible ? 'Visível para utilizadores num raio de 5 km' : 'Modo Fantasma: Oculto no radar'}
+                  </p>
+                </div>
+              </div>
+
+              {onToggleRadarVisible && (
+                <button
+                  type="button"
+                  onClick={onToggleRadarVisible}
+                  className={`w-10 h-5.5 rounded-full transition-colors relative p-0.5 cursor-pointer ${
+                    isRadarVisible ? 'bg-[#22D3EE]' : 'bg-zinc-700'
+                  }`}
+                  title={isRadarVisible ? "Ativar Modo Fantasma (Ocultar do radar)" : "Ficar visível no radar"}
+                >
+                  <div
+                    className={`w-4.5 h-4.5 rounded-full bg-white transition-transform ${
+                      isRadarVisible ? 'translate-x-4.5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              )}
+            </div>
+
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              {isRadarVisible ? (
+                <span>
+                  🟢 <strong className="text-zinc-200">Estás visível:</strong> Outros utilizadores num raio de 5 km podem ver a tua presença aproximada na aba Explorar e enviar convites de conversa.
+                </span>
+              ) : (
+                <span>
+                  👻 <strong className="text-purple-300">Modo Fantasma Ativo:</strong> A tua posição e perfil estão completamente ocultos do radar de todas as pessoas. Podes continuar a navegar e explorar anonimamente.
+                </span>
+              )}
+            </p>
           </div>
 
           {/* Anti-Screenshot Shield Section */}

@@ -18,6 +18,60 @@ const ONE_HOUR = 60 * 60 * 1000;
 
 export const INITIAL_VIBES: VibeItem[] = [
   {
+    id: 'vibe-user-current',
+    authorId: CURRENT_USER.id,
+    authorName: CURRENT_USER.name,
+    authorUsername: CURRENT_USER.username,
+    authorAvatar: CURRENT_USER.avatar,
+    authorVibeColor: CURRENT_USER.vibeColor,
+    type: 'photo',
+    content: 'A começar a noite aqui no Chiado 🌆 Quem estiver pela zona venha ter connosco para um brinde!',
+    mediaUrl: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1080&q=80',
+    location: 'Lisboa, Chiado',
+    distance: 'A tua publicação',
+    createdAt: NOW - 20 * 60 * 1000,
+    expiresAt: NOW + 23 * ONE_HOUR + 40 * 60 * 1000,
+    privacy: 'public',
+    likes: 42,
+    hasLiked: false,
+    commentsCount: 6,
+    sharesCount: 3,
+    viewsCount: 230,
+    attentionReactions: [
+      {
+        id: 'att-1',
+        vibeId: 'vibe-user-current',
+        emoji: '⚡',
+        reactorName: 'Diogo Ribeiro',
+        reactorAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
+        createdAt: NOW - 10 * 60 * 1000,
+        read: false,
+      },
+      {
+        id: 'att-2',
+        vibeId: 'vibe-user-current',
+        emoji: '🔥',
+        reactorName: 'Inês Carmo',
+        reactorAvatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=200&q=80',
+        createdAt: NOW - 4 * 60 * 1000,
+        read: false,
+      }
+    ],
+    attentionCount: 2,
+    comments: [
+      {
+        id: 'c-user-1',
+        userId: 'user_1',
+        userName: 'Inês Carmo',
+        userAvatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=200&q=80',
+        userVibeColor: 'pink',
+        text: 'Estamos no Miradouro logo a seguir! Vão para aí?',
+        createdAt: NOW - 12 * 60 * 1000,
+        likes: 4,
+      }
+    ],
+  },
+  {
     id: 'vibe-1',
     authorId: 'user_1',
     authorName: 'Inês Carmo',

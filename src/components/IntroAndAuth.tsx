@@ -47,10 +47,12 @@ import {
   verifyLogin,
   isUsernameTaken,
   setSessionActive,
+  getRegisteredAccounts,
 } from '../lib/authStore';
 import {
   syncUserToSupabase,
   getSupabaseConfig,
+  recoverUserFromSupabase,
 } from '../lib/supabaseClient';
 import { SupabaseConfigModal } from './SupabaseConfigModal';
 
@@ -347,18 +349,35 @@ export const IntroAndAuth: React.FC<IntroAndAuthProps> = ({
 
     setLoginLoading(true);
 
-    setTimeout(() => {
+    setTimeout(async () => {
       const account = verifyLogin(cleanUsername, token);
-      setLoginLoading(false);
-
-      if (!account) {
-        setLoginError('Nome de utilizador ou token de 4 dígitos incorreto.');
+      if (account) {
+        setLoginLoading(false);
+        setSessionActive(account);
+        onLoginSuccess(account);
         return;
       }
 
-      // Successful login
-      setSessionActive(account);
-      onLoginSuccess(account);
+      // Fallback: recover from Supabase if device was lost or storage was cleared
+      try {
+        const supaAccount = await recoverUserFromSupabase(cleanUsername);
+        setLoginLoading(false);
+        if (supaAccount && supaAccount.token === token) {
+          const accounts = getRegisteredAccounts();
+          if (!accounts.some((a) => a.username.toLowerCase() === supaAccount.username.toLowerCase())) {
+            accounts.push(supaAccount);
+            localStorage.setItem('lyvo_registered_users', JSON.stringify(accounts));
+          }
+          setSessionActive(supaAccount);
+          onLoginSuccess(supaAccount);
+          return;
+        }
+      } catch (err) {
+        // ignore
+      }
+
+      setLoginLoading(false);
+      setLoginError('Nome de utilizador ou token de 4 dígitos incorreto.');
     }, 400);
   };
 

@@ -25,6 +25,7 @@ import {
   getSupabaseClient,
   syncUserToSupabase,
   syncAllUsersToSupabase,
+  COMPLETE_SUPABASE_SCHEMA_SQL,
 } from '../lib/supabaseClient';
 import { getRegisteredAccounts } from '../lib/authStore';
 
@@ -49,25 +50,7 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
   const [copiedSql, setCopiedSql] = useState(false);
 
   const localAccounts = getRegisteredAccounts();
-
-  const SQL_SNIPPET = `-- 1. Criar tabela de utilizadores no Supabase
-CREATE TABLE IF NOT EXISTS public.users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL,
-    username TEXT UNIQUE NOT NULL,
-    token VARCHAR(4) NOT NULL,
-    avatar_url TEXT,
-    bio TEXT DEFAULT 'Live the moment. No LYVO.',
-    vibe_color TEXT DEFAULT 'purple',
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 2. Políticas RLS (Row Level Security) para permitir registo com a anon key
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Permitir leitura de users para todos" ON public.users;
-CREATE POLICY "Permitir leitura de users para todos" ON public.users FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Permitir registo e upsert de users" ON public.users;
-CREATE POLICY "Permitir registo e upsert de users" ON public.users FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);`;
+  const SQL_SNIPPET = COMPLETE_SUPABASE_SCHEMA_SQL;
 
   useEffect(() => {
     if (currentConfig.isConfigured) {

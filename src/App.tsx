@@ -5,7 +5,8 @@ import {
   Conversation, 
   UserProfile, 
   VibeColor,
-  EphemeralMessage
+  EphemeralMessage,
+  AttentionAlert
 } from './types';
 import { 
   CURRENT_USER_DEFAULT, 
@@ -20,6 +21,8 @@ import { ExplorarView } from './components/ExplorarView';
 import { ConversasView } from './components/ConversasView';
 import { PerfilView } from './components/PerfilView';
 import { CreateVibeModal } from './components/CreateVibeModal';
+import { EditVibeModal } from './components/EditVibeModal';
+import { AttentionAlertsModal } from './components/AttentionAlertsModal';
 import { StoryViewer } from './components/StoryViewer';
 import { CommentsDrawer } from './components/CommentsDrawer';
 import { FullscreenVibeViewer } from './components/FullscreenVibeViewer';
@@ -30,7 +33,28 @@ import { AntiScreenshotOverlay } from './components/AntiScreenshotOverlay';
 import { AntiScreenshotInfoModal } from './components/AntiScreenshotInfoModal';
 import { IntroAndAuth } from './components/IntroAndAuth';
 import { isSessionActive, clearSession, accountToUserProfile } from './lib/authStore';
-import { syncVibeToSupabase } from './lib/supabaseClient';
+import { syncVibeToSupabase, syncMessageToSupabase, purgeExpiredFromSupabase } from './lib/supabaseClient';
+
+const playAttentionChime = () => {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.38);
+  } catch (e) {
+    // Audio autoplay restrictions catch
+  }
+};
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<TabType>('agora');
@@ -61,7 +85,11 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         // Only retain non-expired vibes
-        return parsed.filter((v: VibeItem) => v.expiresAt > Date.now());
+        const valid = parsed.filter((v: VibeItem) => v.expiresAt > Date.now());
+        const hasUserVibe = valid.some((v: VibeItem) => v.authorId === 'user_current' || v.authorUsername === 'martim_lyvo');
+        if (hasUserVibe) return valid;
+        const userMock = MOCK_VIBES.find((mv) => mv.authorId === 'user_current');
+        return userMock ? [userMock, ...valid] : valid;
       } catch (e) { /* use default */ }
     }
     return MOCK_VIBES;
@@ -85,9 +113,49 @@ export default function App() {
   const [activeFullscreenVibe, setActiveFullscreenVibe] = useState<VibeItem | null>(null);
   const [activeCommentVibe, setActiveCommentVibe] = useState<VibeItem | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingVibe, setEditingVibe] = useState<VibeItem | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isAttentionModalOpen, setIsAttentionModalOpen] = useState(false);
   const [isArchitectureModalOpen, setIsArchitectureModalOpen] = useState(false);
   const [isSupabaseConfigModalOpen, setIsSupabaseConfigModalOpen] = useState(false);
   
+  // Attention Alerts Received by the User (Persisted)
+  const [attentionAlerts, setAttentionAlerts] = useState<AttentionAlert[]>(() => {
+    const saved = localStorage.getItem('lyvo_attention_alerts');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) {}
+    }
+    return [
+      {
+        id: 'att-init-1',
+        vibeId: 'vibe-user-current',
+        vibeSnippet: 'A começar a noite aqui no Chiado 🌆',
+        emoji: '⚡',
+        reactorName: 'Diogo Ribeiro',
+        reactorAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
+        createdAt: Date.now() - 10 * 60 * 1000,
+        read: false,
+      },
+      {
+        id: 'att-init-2',
+        vibeId: 'vibe-user-current',
+        vibeSnippet: 'A começar a noite aqui no Chiado 🌆',
+        emoji: '🔥',
+        reactorName: 'Inês Carmo',
+        reactorAvatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=200&q=80',
+        createdAt: Date.now() - 4 * 60 * 1000,
+        read: false,
+      }
+    ];
+  });
+
+  const [incomingAttentionAlert, setIncomingAttentionAlert] = useState<{
+    emoji: string;
+    reactorName: string;
+    text: string;
+    vibeId: string;
+  } | null>(null);
+
   // Anti-Screenshot Shield States
   const [antiScreenshotEnabled, setAntiScreenshotEnabled] = useState<boolean>(() => {
     const saved = localStorage.getItem('lyvo_anti_screenshot');
@@ -98,6 +166,21 @@ export default function App() {
     return saved !== null ? saved === 'true' : false;
   });
   const [isAntiScreenshotModalOpen, setIsAntiScreenshotModalOpen] = useState(false);
+
+  // Proximity Radar Visibility (Ghost Mode vs Visible)
+  const [isRadarVisible, setIsRadarVisible] = useState<boolean>(() => {
+    const saved = localStorage.getItem('lyvo_radar_visible');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const handleToggleRadarVisible = () => {
+    setIsRadarVisible((prev) => {
+      const next = !prev;
+      localStorage.setItem('lyvo_radar_visible', String(next));
+      showToast(next ? '🟢 Radar de Proximidade: Estás agora visível (5 km)' : '👻 Modo Fantasma ATIVADO: Estás invisível no radar');
+      return next;
+    });
+  };
 
   // Live online count fluctuation
   const [onlineCount, setOnlineCount] = useState(2418);
@@ -147,6 +230,10 @@ export default function App() {
     localStorage.setItem('lyvo_anti_screenshot_blur', String(antiScreenshotBlur));
   }, [antiScreenshotBlur]);
 
+  useEffect(() => {
+    localStorage.setItem('lyvo_attention_alerts', JSON.stringify(attentionAlerts));
+  }, [attentionAlerts]);
+
   // Online count subtle live fluctuation
   useEffect(() => {
     const interval = setInterval(() => {
@@ -155,22 +242,59 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Continuous Ephemeral Purge Cycle (Simulating server-side TTL every 10 seconds)
+  // Continuous Ephemeral Purge Cycle (Deletes expired vibes & messages from both device storage and Supabase database)
   useEffect(() => {
-    const purgeInterval = setInterval(() => {
+    // Initial purge on startup
+    purgeExpiredFromSupabase().catch(() => {});
+
+    const purgeLocalAndRemote = () => {
       const now = Date.now();
-      setVibes((prev) => prev.filter((v) => v.expiresAt > now));
-      setConversations((prev) =>
-        prev
+
+      // 1. Purge from user's phone / device storage & state
+      setVibes((prev) => {
+        const kept = prev.filter((v) => v.expiresAt > now);
+        if (kept.length !== prev.length) {
+          localStorage.setItem('lyvo_vibes', JSON.stringify(kept));
+        }
+        return kept;
+      });
+
+      setConversations((prev) => {
+        const kept = prev
           .filter((c) => c.expiresAt > now)
           .map((c) => ({
             ...c,
             messages: c.messages.filter((m) => m.expiresAt > now),
-          }))
-      );
-    }, 10000);
+          }));
+        localStorage.setItem('lyvo_conversations', JSON.stringify(kept));
+        return kept;
+      });
 
-    return () => clearInterval(purgeInterval);
+      setAttentionAlerts((prev) => {
+        const kept = prev.filter((a) => now - a.createdAt < 24 * 60 * 60 * 1000);
+        if (kept.length !== prev.length) {
+          localStorage.setItem('lyvo_attention_alerts', JSON.stringify(kept));
+        }
+        return kept;
+      });
+
+      // 2. Purge from Supabase database
+      purgeExpiredFromSupabase().catch(() => {});
+    };
+
+    const purgeInterval = setInterval(purgeLocalAndRemote, 5000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        purgeLocalAndRemote();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(purgeInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   // Total unread count for conversations
@@ -332,6 +456,9 @@ export default function App() {
         return c;
       })
     );
+
+    // Sync message to Supabase database (with its custom TTL)
+    syncMessageToSupabase(newMsg).catch(() => {});
   };
 
   const handleSendStoryReply = (recipientName: string, text: string) => {
@@ -434,9 +561,161 @@ export default function App() {
     showToast('🔥 Todas as tuas Vibes e conversas foram purgadas!');
   };
 
+  const handleSaveEditedVibe = (updatedVibe: VibeItem) => {
+    setVibes((prev) =>
+      prev.map((v) => (v.id === updatedVibe.id ? updatedVibe : v))
+    );
+
+    // Also update story reel if it contains this vibe
+    setStories((prev) =>
+      prev.map((s) =>
+        s.isUser
+          ? {
+              ...s,
+              vibes: s.vibes.map((v) => (v.id === updatedVibe.id ? updatedVibe : v)),
+            }
+          : s
+      )
+    );
+
+    showToast('✨ Publicação alterada com sucesso na Timeline!');
+    syncVibeToSupabase(updatedVibe).catch(() => {});
+  };
+
   const handleDeleteVibe = (vibeId: string) => {
     setVibes((prev) => prev.filter((v) => v.id !== vibeId));
-    showToast('Vibe eliminada com sucesso.');
+    setStories((prev) =>
+      prev.map((s) =>
+        s.isUser
+          ? {
+              ...s,
+              vibes: s.vibes.filter((v) => v.id !== vibeId),
+            }
+          : s
+      )
+    );
+    showToast('🗑️ Publicação eliminada com sucesso.');
+  };
+
+  const handleCallAttention = (vibeId: string, emoji: string) => {
+    const targetVibe = vibes.find((v) => v.id === vibeId);
+    const isOwn = targetVibe
+      ? targetVibe.authorId === currentUser.id || targetVibe.authorUsername === currentUser.username
+      : false;
+
+    const newAlert: AttentionAlert = {
+      id: `att_${Date.now()}_${Math.random()}`,
+      vibeId,
+      vibeSnippet: targetVibe?.content?.slice(0, 45) || 'Vibe visual',
+      emoji,
+      reactorName: currentUser.name,
+      reactorAvatar: currentUser.avatar,
+      createdAt: Date.now(),
+      read: false,
+    };
+
+    // Update target vibe's attentionReactions
+    setVibes((prev) =>
+      prev.map((v) => {
+        if (v.id === vibeId) {
+          const existing = v.attentionReactions || [];
+          return {
+            ...v,
+            attentionCount: (v.attentionCount || 0) + 1,
+            attentionReactions: [newAlert, ...existing].slice(0, 10),
+          };
+        }
+        return v;
+      })
+    );
+
+    // If it's the author's own publication:
+    if (isOwn) {
+      playAttentionChime();
+      setIncomingAttentionAlert({
+        emoji,
+        reactorName: currentUser.name,
+        text: 'Chamaste a atenção na tua própria publicação!',
+        vibeId,
+      });
+      setAttentionAlerts((prev) => [newAlert, ...prev]);
+      showToast(`🔔 Atenção chamada com ${emoji}! Notificação visível no topo.`);
+      setTimeout(() => setIncomingAttentionAlert(null), 5000);
+    } else {
+      // It's another user's post (e.g. Inês or Diogo)
+      showToast(`⚡ Chamaste a atenção de ${targetVibe?.authorName || 'autor'} com ${emoji}! O autor foi notificado.`);
+
+      // Simulate the author receiving and reacting back
+      setTimeout(() => {
+        const friendAlert: AttentionAlert = {
+          id: `att_${Date.now()}`,
+          vibeId,
+          vibeSnippet: targetVibe?.content?.slice(0, 40),
+          emoji,
+          reactorName: targetVibe?.authorName || 'Amigo',
+          reactorAvatar: targetVibe?.authorAvatar,
+          createdAt: Date.now(),
+          read: false,
+        };
+        playAttentionChime();
+        setIncomingAttentionAlert({
+          emoji,
+          reactorName: targetVibe?.authorName || 'Amigo',
+          text: `Notificou que recebeu a tua chamada de atenção!`,
+          vibeId,
+        });
+        setAttentionAlerts((prev) => [friendAlert, ...prev]);
+        setTimeout(() => setIncomingAttentionAlert(null), 5000);
+      }, 2500);
+    }
+  };
+
+  const handleSimulateIncomingAttention = () => {
+    const friendNames = [
+      { name: 'Diogo Ribeiro', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80', emoji: '⚡' },
+      { name: 'Inês Carmo', avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=200&q=80', emoji: '🔥' },
+      { name: 'Nika Rossi', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80', emoji: '🚀' },
+      { name: 'Tomás Ramos', avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=200&q=80', emoji: '💖' },
+    ];
+    const picked = friendNames[Math.floor(Math.random() * friendNames.length)];
+    const myVibe = vibes.find((v) => v.authorId === currentUser.id || v.authorUsername === currentUser.username) || vibes[0];
+
+    const alertItem: AttentionAlert = {
+      id: `att_${Date.now()}`,
+      vibeId: myVibe ? myVibe.id : 'vibe-user-current',
+      vibeSnippet: myVibe?.content?.slice(0, 40) || 'A tua publicação',
+      emoji: picked.emoji,
+      reactorName: picked.name,
+      reactorAvatar: picked.avatar,
+      createdAt: Date.now(),
+      read: false,
+    };
+
+    if (myVibe) {
+      setVibes((prev) =>
+        prev.map((v) => {
+          if (v.id === myVibe.id) {
+            const existing = v.attentionReactions || [];
+            return {
+              ...v,
+              attentionCount: (v.attentionCount || 0) + 1,
+              attentionReactions: [alertItem, ...existing].slice(0, 10),
+            };
+          }
+          return v;
+        })
+      );
+    }
+
+    playAttentionChime();
+    setAttentionAlerts((prev) => [alertItem, ...prev]);
+    setIncomingAttentionAlert({
+      emoji: picked.emoji,
+      reactorName: picked.name,
+      text: `Chamou a tua atenção na tua publicação!`,
+      vibeId: myVibe ? myVibe.id : '',
+    });
+    setTimeout(() => setIncomingAttentionAlert(null), 5000);
   };
 
   const handleUpdateVibeColor = (color: VibeColor) => {
@@ -566,6 +845,9 @@ export default function App() {
           onOpenSloganModal={() => setIsSloganModalOpen(true)}
           onOpenAntiScreenshotModal={() => setIsAntiScreenshotModalOpen(true)}
           onTestScreenshotBlackout={handleTestBlackout}
+          onLogout={handleLogout}
+          attentionAlertsCount={attentionAlerts.filter((a) => !a.read).length || attentionAlerts.length}
+          onOpenAttentionAlerts={() => setIsAttentionModalOpen(true)}
         />
 
         {/* Dynamic Main Views */}
@@ -581,6 +863,11 @@ export default function App() {
               onOpenCreate={() => setIsCreateModalOpen(true)}
               onOpenFullscreen={(vibe) => setActiveFullscreenVibe(vibe)}
               onSimulateIncomingVibe={handleSimulateIncomingVibe}
+              onEditVibe={(vibe) => {
+                setEditingVibe(vibe);
+                setIsEditModalOpen(true);
+              }}
+              onCallAttention={handleCallAttention}
             />
           )}
 
@@ -590,6 +877,8 @@ export default function App() {
               currentUser={currentUser}
               onSelectVibe={(vibe) => setActiveFullscreenVibe(vibe)}
               onOpenChatWith={handleOpenChatWith}
+              isRadarVisible={isRadarVisible}
+              onToggleRadarVisible={handleToggleRadarVisible}
             />
           )}
 
@@ -627,6 +916,8 @@ export default function App() {
               onOpenAntiScreenshotModal={() => setIsAntiScreenshotModalOpen(true)}
               onLogout={handleLogout}
               onOpenIntroBanners={() => setShowIntroModal(true)}
+              isRadarVisible={isRadarVisible}
+              onToggleRadarVisible={handleToggleRadarVisible}
             />
           )}
         </main>
@@ -657,6 +948,70 @@ export default function App() {
             onClose={() => setIsCreateModalOpen(false)}
             onCreateVibe={handleCreateVibe}
           />
+        )}
+
+        {/* Edit Vibe Modal (Alteração na própria publicação) */}
+        {isEditModalOpen && editingVibe && (
+          <EditVibeModal
+            vibe={editingVibe}
+            isOpen={isEditModalOpen}
+            onClose={() => {
+              setIsEditModalOpen(false);
+              setEditingVibe(null);
+            }}
+            onSave={handleSaveEditedVibe}
+            onDelete={handleDeleteVibe}
+          />
+        )}
+
+        {/* Attention Alerts Modal (Avisos de atenção recebida) */}
+        {isAttentionModalOpen && (
+          <AttentionAlertsModal
+            isOpen={isAttentionModalOpen}
+            onClose={() => setIsAttentionModalOpen(false)}
+            alerts={attentionAlerts}
+            currentUser={currentUser}
+            onSimulateIncomingAlert={handleSimulateIncomingAttention}
+            onClearAlerts={() => setAttentionAlerts([])}
+            onSelectVibe={(vibeId) => {
+              const v = vibes.find((item) => item.id === vibeId);
+              if (v) {
+                setActiveFullscreenVibe(v);
+              }
+            }}
+          />
+        )}
+
+        {/* Real-time Incoming Attention Alert Pop-up */}
+        {incomingAttentionAlert && (
+          <div 
+            onClick={() => {
+              setIsAttentionModalOpen(true);
+              setIncomingAttentionAlert(null);
+            }}
+            className="fixed top-16 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-sm px-4 py-3 rounded-2xl bg-[#141424]/95 border border-[#22D3EE]/70 shadow-[0_0_25px_rgba(34,211,238,0.35)] backdrop-blur-xl animate-in fade-in slide-in-from-top-4 duration-300 cursor-pointer"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#8B5CF6] to-[#F43F9E] flex items-center justify-center text-xl shrink-0 shadow-lg animate-bounce">
+                {incomingAttentionAlert.emoji}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#22D3EE] font-mono flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                    Atenção Recebida!
+                  </span>
+                  <span className="text-[10px] text-zinc-400 font-mono">Em direto</span>
+                </div>
+                <p className="text-xs font-bold text-white truncate mt-0.5">
+                  @{incomingAttentionAlert.reactorName} chamou a tua atenção!
+                </p>
+                <p className="text-[11px] text-zinc-300 truncate">
+                  Carregou em <span className="text-sm">{incomingAttentionAlert.emoji}</span> na tua publicação
+                </p>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Fullscreen Story Viewer */}

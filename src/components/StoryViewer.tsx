@@ -156,12 +156,27 @@ export const StoryViewer: React.FC<StoryViewerProps> = ({
           {/* User info & close */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className={`w-9 h-9 rounded-full p-[2px] border ${colorConfig.borderClass} ${colorConfig.glowClass}`}>
-                <img
-                  src={storyGroup.userAvatar}
-                  alt={storyGroup.userName}
-                  className="w-full h-full object-cover rounded-full"
-                />
+              <div className="relative w-9 h-9 flex items-center justify-center shrink-0">
+                <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 36 36">
+                  <circle
+                    cx="18"
+                    cy="18"
+                    r="15"
+                    fill="none"
+                    stroke={colorConfig.hex}
+                    strokeWidth="2.2"
+                    strokeDasharray="5.5 2.8"
+                    strokeLinecap="round"
+                    style={{ filter: `drop-shadow(0 0 4px ${colorConfig.hex}aa)` }}
+                  />
+                </svg>
+                <div className="w-[28px] h-[28px] rounded-full overflow-hidden">
+                  <img
+                    src={storyGroup.userAvatar}
+                    alt={storyGroup.userName}
+                    className="w-full h-full object-cover rounded-full"
+                  />
+                </div>
               </div>
               <div>
                 <div className="flex items-center gap-1.5">

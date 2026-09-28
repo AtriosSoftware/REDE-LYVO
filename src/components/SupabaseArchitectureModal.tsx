@@ -14,7 +14,7 @@ import {
   KeyRound,
   ExternalLink
 } from 'lucide-react';
-import { getSupabaseConfig } from '../lib/supabaseClient';
+import { getSupabaseConfig, COMPLETE_SUPABASE_SCHEMA_SQL, purgeExpiredFromSupabase } from '../lib/supabaseClient';
 
 interface SupabaseArchitectureModalProps {
   onClose: () => void;
@@ -27,7 +27,7 @@ export const SupabaseArchitectureModal: React.FC<SupabaseArchitectureModalProps>
   onSimulateCronPurge,
   onOpenConnectModal,
 }) => {
-  const [activeTab, setActiveTab] = useState<'sql' | 'cron' | 'storage' | 'rls'>('cron');
+  const [activeTab, setActiveTab] = useState<'master' | 'summary' | 'cron' | 'storage' | 'rls'>('master');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [cronLog, setCronLog] = useState<string | null>(null);
   const supabaseConfig = getSupabaseConfig();
@@ -38,82 +38,19 @@ export const SupabaseArchitectureModal: React.FC<SupabaseArchitectureModalProps>
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
-  const handleTestCron = () => {
-    const result = onSimulateCronPurge();
+  const handleTestCron = async () => {
+    const localResult = onSimulateCronPurge();
+    const supaResult = await purgeExpiredFromSupabase();
     const timestamp = new Date().toLocaleTimeString();
     setCronLog(
-      `[${timestamp}] pg_cron EXECUTADO COM SUCESSO!\n` +
-      `QUERY: DELETE FROM vibes WHERE expires_at <= NOW(); -> ${result.purgedVibes} eliminadas\n` +
-      `QUERY: DELETE FROM messages WHERE expires_at <= NOW(); -> ${result.purgedMessages} eliminadas\n` +
-      `STORAGE: Edge function supabase/functions/purge-storage invocada.`
+      `[${timestamp}] PURGA EXECUTADA NO SUPABASE & TELEMÓVEL!\n` +
+      `• Base de Dados Supabase: ${supaResult.purgedVibes} vibes apagadas, ${supaResult.purgedMessages} mensagens apagadas, ${supaResult.purgedStories} stories apagados, ${supaResult.purgedAlerts} alertas apagados\n` +
+      `• Telemóvel (LocalStorage): ${localResult.purgedVibes} vibes limpas, ${localResult.purgedMessages} mensagens limpas\n` +
+      `• Zero Rasto: Fotos, áudios e mensagens expiradas foram permanentemente eliminadas.`
     );
   };
 
-  const SQL_TABLES = `-- ==========================================
--- 1. TABELAS ESSENCIAIS SUPABASE (LYVO ZERO RASTO)
--- ==========================================
-
--- Tabela de Utilizadores (Login via Username + Token 4 Dígitos)
-CREATE TABLE IF NOT EXISTS public.users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL,
-    username TEXT UNIQUE NOT NULL,
-    token VARCHAR(4) NOT NULL,
-    avatar_url TEXT,
-    bio TEXT DEFAULT 'Live the moment. No LYVO.',
-    vibe_color TEXT DEFAULT 'purple',
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Políticas RLS para tabela users (Permitir registo e consulta por chave anon)
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Permitir leitura de users para todos" ON public.users;
-CREATE POLICY "Permitir leitura de users para todos" ON public.users FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Permitir registo e upsert de users" ON public.users;
-CREATE POLICY "Permitir registo e upsert de users" ON public.users FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-
--- Tabela de Vibes (Fotos, Vídeos, Áudios, Texto com Duração Escolhida pelo Utilizador)
-CREATE TABLE IF NOT EXISTS public.vibes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    author_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
-    type TEXT NOT NULL CHECK (type IN ('photo', 'video', 'audio', 'text')),
-    content TEXT,
-    media_url TEXT,
-    audio_duration INT DEFAULT 0,
-    location TEXT DEFAULT 'Lisboa, Centro',
-    latitude DOUBLE PRECISION,
-    longitude DOUBLE PRECISION,
-    privacy TEXT DEFAULT 'public' CHECK (privacy IN ('public', 'friends')),
-    author_vibe_color TEXT DEFAULT 'purple',
-    -- Duração escolhida pelo utilizador (ex: 0.5h, 1h, 6h, 12h ou até 24h)
-    duration_hours NUMERIC(4, 2) DEFAULT 24 CHECK (duration_hours > 0 AND duration_hours <= 24),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '24 hours')
-);
-
--- Tabela de Conversas Efémeras
-CREATE TABLE IF NOT EXISTS public.conversations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '24 hours')
-);
-
--- Tabela de Mensagens do Chat (ZERO GRAVAÇÃO PERMANENTE: Apagadas em 1 min após saída)
-CREATE TABLE IF NOT EXISTS public.messages (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    conversation_id UUID REFERENCES public.conversations(id) ON DELETE CASCADE,
-    sender_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
-    type TEXT DEFAULT 'text' CHECK (type IN ('text', 'audio', 'photo')),
-    content TEXT,
-    media_url TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    -- Por padrão ou ao sair da conversa, expira e é destruída em 1 minuto
-    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '1 minute')
-);
-
--- Índices de performance para rápida eliminação por TTL
-CREATE INDEX IF NOT EXISTS idx_vibes_expires_at ON public.vibes(expires_at);
-CREATE INDEX IF NOT EXISTS idx_messages_expires_at ON public.messages(expires_at);`;
+  const SQL_TABLES = COMPLETE_SUPABASE_SCHEMA_SQL;
 
   const SQL_CRON = `-- ==========================================
 -- 2. PG_CRON: ELIMINAÇÃO AUTOMÁTICA EM TEMPO REAL
@@ -121,47 +58,62 @@ CREATE INDEX IF NOT EXISTS idx_messages_expires_at ON public.messages(expires_at
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 -- Função que apaga dados expirados:
--- - Mensagens de chat (destruídas 1 minuto após saírem)
--- - Vibes (conforme o tempo escolhido pelo utilizador até 24h)
-CREATE OR REPLACE FUNCTION purge_ephemeral_data()
-RETURNS void
+-- - Mensagens de chat (destruídas 1 minuto após saírem ou TTL definido)
+-- - Vibes (conforme o tempo escolhido pelo utilizador de 30min até 24h)
+-- - Stories e Alertas de Atenção
+CREATE OR REPLACE FUNCTION public.purge_expired_ephemeral_data()
+RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
+DECLARE
+  v_count INT := 0;
+  m_count INT := 0;
+  c_count INT := 0;
+  s_count INT := 0;
+  a_count INT := 0;
 BEGIN
-    -- 1. Apaga Mensagens do chat (1 minuto após expiração)
-    DELETE FROM public.messages 
-    WHERE expires_at <= NOW();
+  -- 1. Apagar mensagens de chat cujo expires_at já passou
+  WITH deleted_msgs AS (
+    DELETE FROM public.messages WHERE expires_at <= NOW() RETURNING id
+  ) SELECT count(*) INTO m_count FROM deleted_msgs;
 
-    -- 2. Apaga Vibes expiradas (conforme duração definida pelo autor)
-    DELETE FROM public.vibes 
-    WHERE expires_at <= NOW();
+  -- 2. Apagar conversas expiradas
+  WITH deleted_convs AS (
+    DELETE FROM public.conversations WHERE expires_at <= NOW() RETURNING id
+  ) SELECT count(*) INTO c_count FROM deleted_convs;
 
-    -- 3. Apaga Conversas vazias ou expiradas
-    DELETE FROM public.conversations 
-    WHERE expires_at <= NOW();
-END;
-$$;
+  -- 3. Apagar vibes, fotos e áudios expirados
+  WITH deleted_vibes AS (
+    DELETE FROM public.vibes WHERE expires_at <= NOW() RETURNING id
+  ) SELECT count(*) INTO v_count FROM deleted_vibes;
 
--- Função chamada pelo app quando o utilizador sai da conversa:
--- Define a autodestruição de todas as mensagens dessa conversa para daqui a 1 minuto
-CREATE OR REPLACE FUNCTION schedule_conversation_exit_purge(target_conv_id UUID)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-    UPDATE public.messages
-    SET expires_at = NOW() + INTERVAL '1 minute'
-    WHERE conversation_id = target_conv_id;
+  -- 4. Apagar stories expirados
+  WITH deleted_stories AS (
+    DELETE FROM public.stories WHERE expires_at <= NOW() RETURNING id
+  ) SELECT count(*) INTO s_count FROM deleted_stories;
+
+  -- 5. Apagar alertas expirados
+  WITH deleted_alerts AS (
+    DELETE FROM public.attention_alerts WHERE expires_at <= NOW() RETURNING id
+  ) SELECT count(*) INTO a_count FROM deleted_alerts;
+
+  RETURN jsonb_build_object(
+    'purged_vibes', v_count,
+    'purged_messages', m_count,
+    'purged_conversations', c_count,
+    'purged_stories', s_count,
+    'purged_alerts', a_count,
+    'purged_at', NOW()
+  );
 END;
 $$;
 
 -- Agenda o Job para correr A CADA 1 MINUTO
 SELECT cron.schedule(
-    'lyvo-auto-purge-1min',
+    'lyvo-auto-purge-every-minute',
     '* * * * *', -- Executa a cada minuto
-    'SELECT purge_ephemeral_data();'
+    'SELECT public.purge_expired_ephemeral_data();'
 );`;
 
   const SQL_STORAGE = `// ==========================================
@@ -204,26 +156,30 @@ Deno.serve(async (req) => {
 })`;
 
   const SQL_RLS = `-- ==========================================
--- 4. ROW LEVEL SECURITY (RLS) PARA VIBES PÚBLICAS & PRIVADAS
+-- 4. ROW LEVEL SECURITY (RLS) PARA MÁXIMA PRIVACIDADE
+-- Nenhum registo expirado pode ser lido mesmo antes do cron rodar!
 -- ==========================================
 ALTER TABLE public.vibes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.stories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 
--- Vibes públicas são visíveis para todos antes de expirarem
-CREATE POLICY "Vibes públicas visíveis para todos"
+-- Vibes públicas são visíveis para todos estritamente enquanto válidas
+DROP POLICY IF EXISTS "Permitir leitura de vibes ativas" ON public.vibes;
+CREATE POLICY "Permitir leitura de vibes ativas"
 ON public.vibes FOR SELECT
 USING (
     privacy = 'public' 
     AND expires_at > NOW()
 );
 
--- Utilizadores só podem ler mensagens das conversas em que participam
-CREATE POLICY "Mensagens privadas apenas para participantes"
-ON public.messages FOR SELECT
-USING (
-    auth.uid() = sender_id
-    AND expires_at > NOW()
-);`;
+-- Mensagens com autodestruição: invisíveis após expiração
+DROP POLICY IF EXISTS "Permitir mensagens ativas" ON public.messages;
+CREATE POLICY "Permitir mensagens ativas"
+ON public.messages FOR ALL
+TO anon, authenticated
+USING (expires_at > NOW())
+WITH CHECK (true);`;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
@@ -302,19 +258,20 @@ USING (
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex border-b border-[#1E1E30] bg-[#0E0E18] px-2">
+        <div className="flex border-b border-[#1E1E30] bg-[#0E0E18] px-2 overflow-x-auto no-scrollbar">
           {[
-            { id: 'cron' as const, label: '⏰ pg_cron (Auto-Delete)', code: SQL_CRON },
-            { id: 'sql' as const, label: '🐘 Esquema SQL (TTL)', code: SQL_TABLES },
-            { id: 'storage' as const, label: '🪣 Edge Function Storage', code: SQL_STORAGE },
-            { id: 'rls' as const, label: '🔒 RLS Segurança', code: SQL_RLS },
+            { id: 'master' as const, label: '🚀 Query Mestre (SQL Editor)' },
+            { id: 'summary' as const, label: '📊 Dados Guardados & TTL' },
+            { id: 'cron' as const, label: '⏰ pg_cron (Auto-Delete)' },
+            { id: 'storage' as const, label: '🪣 Storage Fotos & Áudio' },
+            { id: 'rls' as const, label: '🔒 RLS Privacidade' },
           ].map(({ id, label }) => (
             <button
               key={id}
               onClick={() => setActiveTab(id)}
-              className={`py-2.5 px-3 text-xs font-semibold transition-all border-b-2 ${
+              className={`py-2.5 px-3 text-xs font-semibold whitespace-nowrap transition-all border-b-2 ${
                 activeTab === id
-                  ? 'border-[#22D3EE] text-[#22D3EE]'
+                  ? 'border-[#22D3EE] text-[#22D3EE] bg-[#22D3EE]/5'
                   : 'border-transparent text-zinc-400 hover:text-zinc-200'
               }`}
             >
@@ -323,52 +280,145 @@ USING (
           ))}
         </div>
 
-        {/* Code View Area */}
+        {/* Code / Content View Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#0A0A12]">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-zinc-400 font-mono">
-              {activeTab === 'cron' && 'pg_cron_job.sql'}
-              {activeTab === 'sql' && 'schema_tables.sql'}
-              {activeTab === 'storage' && 'purge_storage.ts'}
-              {activeTab === 'rls' && 'row_level_security.sql'}
-            </span>
+          
+          {/* Summary Tab: Visual Architecture of Data & Privacy */}
+          {activeTab === 'summary' && (
+            <div className="space-y-3 text-xs text-zinc-300">
+              <div className="p-3.5 rounded-2xl bg-[#141424] border border-[#26263E] space-y-2">
+                <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                  <Database className="w-4 h-4 text-[#22D3EE]" />
+                  <span>1. Dados Guardados no Supabase (Estrutura)</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
+                  <div className="p-2.5 rounded-xl bg-[#0D0D18] border border-white/5 space-y-1">
+                    <span className="text-[#8B5CF6] font-bold block">👤 Utilizadores & Token (public.users)</span>
+                    <p className="text-zinc-400">
+                      Guarda <code className="text-white">id</code>, <code className="text-white">name</code>, <code className="text-white">username</code>, <code className="text-amber-400 font-bold">token (4 dígitos)</code>, avatar e bio.
+                    </p>
+                    <span className="text-[10px] text-emerald-400 block font-mono">
+                      ✓ Permite restaurar a conta caso percas o telemóvel!
+                    </span>
+                  </div>
 
-            <button
-              onClick={() => {
-                const code =
-                  activeTab === 'cron'
-                    ? SQL_CRON
-                    : activeTab === 'sql'
-                    ? SQL_TABLES
-                    : activeTab === 'storage'
-                    ? SQL_STORAGE
-                    : SQL_RLS;
-                copyToClipboard(code, activeTab);
-              }}
-              className="px-2.5 py-1 rounded-lg bg-[#181828] border border-[#2B2B3E] text-zinc-300 hover:text-white text-xs flex items-center gap-1.5 transition-colors"
-            >
-              {copiedCode === activeTab ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="text-emerald-400">Copiado!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>Copiar SQL</span>
-                </>
-              )}
-            </button>
-          </div>
+                  <div className="p-2.5 rounded-xl bg-[#0D0D18] border border-white/5 space-y-1">
+                    <span className="text-[#F43F9E] font-bold block">🔥 Vibes, Fotos & Áudios (public.vibes)</span>
+                    <p className="text-zinc-400">
+                      Guarda posts, fotos, áudios, textos, localização e a coluna <code className="text-rose-400 font-bold">expires_at</code>.
+                    </p>
+                    <span className="text-[10px] text-zinc-400 block font-mono">
+                      ⏱️ TTL: 30min, 1h, 3h, 15h, 17h até 24h na barra de rolagem.
+                    </span>
+                  </div>
 
-          <pre className="p-3.5 rounded-2xl bg-[#0F0F1A] border border-[#202034] text-xs font-mono text-zinc-300 overflow-x-auto leading-relaxed">
-            <code>
-              {activeTab === 'cron' && SQL_CRON}
-              {activeTab === 'sql' && SQL_TABLES}
-              {activeTab === 'storage' && SQL_STORAGE}
-              {activeTab === 'rls' && SQL_RLS}
-            </code>
-          </pre>
+                  <div className="p-2.5 rounded-xl bg-[#0D0D18] border border-white/5 space-y-1">
+                    <span className="text-[#22D3EE] font-bold block">💬 Mensagens do Chat (public.messages)</span>
+                    <p className="text-zinc-400">
+                      Mensagens de texto, notas de voz e fotos trocadas em conversa direta.
+                    </p>
+                    <span className="text-[10px] text-rose-400 block font-mono">
+                      💣 Autodestruição programada 1 min após sair do chat.
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-[#0D0D18] border border-white/5 space-y-1">
+                    <span className="text-amber-400 font-bold block">⚡ Atenções & Stories (alerts / stories)</span>
+                    <p className="text-zinc-400">
+                      Alertas quando alguém chama a atenção num post e stories efémeros de 24h.
+                    </p>
+                    <span className="text-[10px] text-zinc-400 block font-mono">
+                      🗑️ Eliminados em cascata quando o post expira.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dual Cleanup Mechanism */}
+              <div className="p-3.5 rounded-2xl bg-[#141424] border border-[#26263E] space-y-2">
+                <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                  <Trash2 className="w-4 h-4 text-rose-400" />
+                  <span>2. Como os dados são apagados do Banco e do Telemóvel</span>
+                </h4>
+
+                <div className="space-y-2 text-[11px] text-zinc-300">
+                  <div className="flex gap-2.5 items-start p-2 rounded-xl bg-black/30 border border-white/5">
+                    <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 font-bold text-xs">
+                      1
+                    </div>
+                    <div>
+                      <strong className="text-white block">No Banco de Dados (Supabase PostgreSQL):</strong>
+                      <p className="text-zinc-400 leading-relaxed">
+                        A extensão <code className="text-emerald-400">pg_cron</code> roda automaticamente a cada 1 minuto executando <code className="text-cyan-400">purge_expired_ephemeral_data()</code>. Registos com <code className="text-white">expires_at &lt;= NOW()</code> são permanentemente excluídos com <code className="text-rose-400">DELETE</code> em cascata. Além disso, as políticas <strong className="text-white">RLS</strong> impedem qualquer leitura externa se já estiver expirado.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2.5 items-start p-2 rounded-xl bg-black/30 border border-white/5">
+                    <div className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0 font-bold text-xs">
+                      2
+                    </div>
+                    <div>
+                      <strong className="text-white block">No Telemóvel do Utilizador (LocalStorage & Memória):</strong>
+                      <p className="text-zinc-400 leading-relaxed">
+                        O motor do app executa uma verificação local a cada 5 segundos e ao focar no app. Quando o tempo de vida esgota, a Vibe ou mensagem é imediatamente expurgada do <code className="text-cyan-400">localStorage</code> e do estado do telemóvel, deixando <strong>zero vestígios físicos</strong> no dispositivo.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Code Viewer (Master, Cron, Storage, RLS) */}
+          {activeTab !== 'summary' && (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-400 font-mono">
+                  {activeTab === 'master' && '01_lyvo_master_supabase_query.sql (COMPLETA)'}
+                  {activeTab === 'cron' && '02_pg_cron_job.sql'}
+                  {activeTab === 'storage' && '03_purge_storage.ts'}
+                  {activeTab === 'rls' && '04_row_level_security.sql'}
+                </span>
+
+                <button
+                  onClick={() => {
+                    const code =
+                      activeTab === 'master'
+                        ? SQL_TABLES
+                        : activeTab === 'cron'
+                        ? SQL_CRON
+                        : activeTab === 'storage'
+                        ? SQL_STORAGE
+                        : SQL_RLS;
+                    copyToClipboard(code, activeTab);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#22D3EE]/20 to-[#8B5CF6]/20 border border-[#22D3EE]/50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm hover:border-[#22D3EE] transition-all cursor-pointer"
+                >
+                  {copiedCode === activeTab ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-400 font-bold">Copiado para a Área de Transferência!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-[#22D3EE]" />
+                      <span>Copiar Query para o SQL Editor</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <pre className="p-3.5 rounded-2xl bg-[#0F0F1A] border border-[#202034] text-xs font-mono text-zinc-300 overflow-x-auto leading-relaxed max-h-[360px]">
+                <code>
+                  {activeTab === 'master' && SQL_TABLES}
+                  {activeTab === 'cron' && SQL_CRON}
+                  {activeTab === 'storage' && SQL_STORAGE}
+                  {activeTab === 'rls' && SQL_RLS}
+                </code>
+              </pre>
+            </>
+          )}
 
           {/* Interactive Live Cron Test in Browser */}
           <div className="p-3.5 rounded-2xl bg-[#141424] border border-[#282840] space-y-2.5">

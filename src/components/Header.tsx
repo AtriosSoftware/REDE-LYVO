@@ -1,8 +1,7 @@
 import React from 'react';
-import { Sparkles, Database, Radio, Bell, Edit3, EyeOff, Shield } from 'lucide-react';
+import { Sparkles, Radio, Bell, Edit3, LogOut } from 'lucide-react';
 import { UserProfile } from '../types';
 import { VIBE_COLORS } from '../lib/vibeColors';
-import { getSupabaseConfig } from '../lib/supabaseClient';
 
 interface HeaderProps {
   currentUser: UserProfile;
@@ -13,6 +12,9 @@ interface HeaderProps {
   onOpenSloganModal?: () => void;
   onOpenAntiScreenshotModal?: () => void;
   onTestScreenshotBlackout?: () => void;
+  onLogout?: () => void;
+  attentionAlertsCount?: number;
+  onOpenAttentionAlerts?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -24,9 +26,11 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSloganModal,
   onOpenAntiScreenshotModal,
   onTestScreenshotBlackout,
+  onLogout,
+  attentionAlertsCount = 0,
+  onOpenAttentionAlerts,
 }) => {
   const userColorConfig = VIBE_COLORS[currentUser.vibeColor];
-  const isSupabaseActive = getSupabaseConfig().isConfigured;
 
   return (
     <header className="sticky top-0 z-40 bg-[#08080D]/90 backdrop-blur-xl border-b border-[#1A1A26]">
@@ -88,7 +92,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Action Controls */}
         <div className="flex items-center gap-2">
           {/* Live Online Pulse */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#11111A] border border-[#262638] text-[11px] font-medium text-zinc-300">
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-[#11111A] border border-[#262638] text-[11px] font-medium text-zinc-300 shadow-sm">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
@@ -97,32 +101,33 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="text-zinc-400 text-[10px] hidden sm:inline">agora</span>
           </div>
 
-          {/* Supabase Config & Status Trigger */}
-          <button
-            onClick={onOpenSupabaseConfig || onOpenArchitecture}
-            title={isSupabaseActive ? "Supabase Conectado (Clique para gerir ou sincronizar)" : "Conectar Supabase Real (Clique para inserir URL e Key)"}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition-all text-xs active:scale-95 ${
-              isSupabaseActive 
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20'
-                : 'bg-[#151522] border-[#2A2A3E] hover:border-[#22D3EE]/50 hover:bg-[#1A1A2E] text-zinc-300 hover:text-white'
-            }`}
-          >
-            <Database className={`w-3.5 h-3.5 ${isSupabaseActive ? 'text-emerald-400' : 'text-[#22D3EE]'}`} />
-            <span className="hidden sm:inline text-[11px] font-medium">
-              {isSupabaseActive ? 'Supabase Ativo' : 'Supabase'}
-            </span>
-            <span className={`w-1.5 h-1.5 rounded-full ${isSupabaseActive ? 'bg-emerald-400' : 'bg-amber-400/80'}`} />
-          </button>
-
-          {/* Anti-Screenshot Shield button */}
-          {onOpenAntiScreenshotModal && (
+          {/* Attention Alerts Bell Button */}
+          {onOpenAttentionAlerts && (
             <button
-              onClick={onOpenAntiScreenshotModal}
-              title="Escudo Anti-Screenshot: Impede capturas de ecrã (Ecrã Preto)"
-              className="flex items-center gap-1 p-2 rounded-xl bg-[#171424] border border-[#3E2548] hover:border-[#EF4444]/60 hover:bg-[#20152B] text-red-300 hover:text-white transition-all text-xs active:scale-95"
+              type="button"
+              onClick={onOpenAttentionAlerts}
+              title="Avisos de Atenção recebida nos teus momentos"
+              className="relative w-8 h-8 rounded-xl bg-[#161624] hover:bg-[#202035] border border-[#2B2B40] hover:border-[#8B5CF6]/50 text-zinc-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-sm"
             >
-              <EyeOff className="w-3.5 h-3.5 text-[#EF4444]" />
-              <span className="text-[11px] font-semibold text-red-400 hidden xs:inline">Anti-Print</span>
+              <Bell className="w-4 h-4 text-[#22D3EE]" />
+              {attentionAlertsCount > 0 && (
+                <span className="absolute -top-1 -right-1 px-1.5 py-0.2 min-w-4 h-4 rounded-full bg-gradient-to-r from-[#F43F9E] to-[#8B5CF6] text-white text-[9px] font-extrabold flex items-center justify-center shadow-[0_0_8px_#F43F9E] animate-pulse">
+                  {attentionAlertsCount > 9 ? '9+' : attentionAlertsCount}
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* User Logout Button */}
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              title="Terminar Sessão (Sair da conta)"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#161624] hover:bg-rose-500/15 border border-[#2B2B40] hover:border-rose-500/40 text-zinc-300 hover:text-rose-200 transition-all text-xs font-semibold active:scale-95 cursor-pointer shadow-sm group"
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-400 group-hover:rotate-12 transition-transform" />
+              <span className="text-[11.5px]">Sair</span>
             </button>
           )}
         </div>

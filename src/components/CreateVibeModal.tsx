@@ -340,26 +340,28 @@ export const CreateVibeModal: React.FC<CreateVibeModalProps> = ({
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-[#F43F9E] animate-pulse" />
-                <span>Tempo de Vida da Publicação</span>
+                <span>Tempo de Vida da Publicação (TTL)</span>
               </label>
-              <span className="text-xs font-mono font-bold text-[#F43F9E] bg-[#F43F9E]/10 border border-[#F43F9E]/30 px-2 py-0.5 rounded-full">
-                {durationHours < 1 ? `${Math.round(durationHours * 60)} minutos` : `${durationHours}h`}
+              <span className="text-xs font-mono font-bold text-[#F43F9E] bg-[#F43F9E]/10 border border-[#F43F9E]/30 px-2.5 py-0.5 rounded-full">
+                {durationHours < 1 ? `${Math.round(durationHours * 60)} min` : `${durationHours} horas`}
               </span>
             </div>
 
-            <p className="text-[11px] text-zinc-400">
-              Escolhe a duração que quiseres (até 24 horas). Após esse período, desaparece para sempre.
+            <p className="text-[11px] text-zinc-400 leading-snug">
+              Escolhe o tempo de vida. Ao expirar, a foto, texto e dados são <strong className="text-rose-400">apagados do banco de dados (Supabase) e do telemóvel</strong>.
             </p>
 
-            {/* Quick Presets */}
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 pt-1">
+            {/* Quick Presets (30 min, 1h, 3h, 6h, 12h, 15h, 17h, 24h) */}
+            <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5 pt-1">
               {[
                 { hours: 0.5, label: '30 min' },
-                { hours: 1, label: '1 hora' },
-                { hours: 3, label: '3 horas' },
-                { hours: 6, label: '6 horas' },
-                { hours: 12, label: '12 horas' },
-                { hours: 24, label: '24 horas' },
+                { hours: 1, label: '1 h' },
+                { hours: 3, label: '3 h' },
+                { hours: 6, label: '6 h' },
+                { hours: 12, label: '12 h' },
+                { hours: 15, label: '15 h' },
+                { hours: 17, label: '17 h' },
+                { hours: 24, label: '24 h' },
               ].map(({ hours, label }) => (
                 <button
                   key={hours}
@@ -367,7 +369,7 @@ export const CreateVibeModal: React.FC<CreateVibeModalProps> = ({
                   onClick={() => setDurationHours(hours)}
                   className={`py-1.5 px-1 rounded-xl text-[11px] font-semibold transition-all border text-center ${
                     durationHours === hours
-                      ? 'bg-[#8B5CF6]/20 border-[#8B5CF6] text-white shadow-[0_0_10px_rgba(139,92,246,0.3)]'
+                      ? 'bg-[#8B5CF6]/30 border-[#8B5CF6] text-white shadow-[0_0_12px_rgba(139,92,246,0.35)]'
                       : 'bg-[#181828] border-[#252538] text-zinc-400 hover:text-white'
                   }`}
                 >
@@ -376,21 +378,41 @@ export const CreateVibeModal: React.FC<CreateVibeModalProps> = ({
               ))}
             </div>
 
-            {/* Custom slider up to 24h */}
+            {/* Custom slider up to 24h (Barra de rolagem personalizada) */}
             <div className="pt-2">
-              <div className="flex justify-between text-[10px] text-zinc-500 font-mono mb-1">
-                <span>Personalizado:</span>
-                <span>{durationHours}h de 24h</span>
+              <div className="flex justify-between items-center text-[10.5px] text-zinc-400 font-mono mb-1">
+                <span className="flex items-center gap-1 text-[#22D3EE]">
+                  <span>Barra de rolagem:</span>
+                </span>
+                <span className="font-bold text-white bg-[#1F1F32] px-2 py-0.5 rounded-md border border-white/10">
+                  {durationHours < 1 ? '30 min' : `${durationHours} horas`}
+                </span>
               </div>
               <input
                 type="range"
-                min="1"
+                min="0.5"
                 max="24"
-                step="1"
-                value={Math.max(1, Math.round(durationHours))}
+                step="0.5"
+                value={durationHours}
                 onChange={(e) => setDurationHours(Number(e.target.value))}
-                className="w-full h-1.5 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-[#F43F9E]"
+                className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-[#F43F9E]"
               />
+              <div className="flex justify-between text-[9px] text-zinc-500 font-mono mt-1">
+                <span>30 min</span>
+                <span>6h</span>
+                <span>12h</span>
+                <span>15h</span>
+                <span>17h</span>
+                <span>24 horas</span>
+              </div>
+            </div>
+
+            {/* Estimated time display */}
+            <div className="mt-1 px-2.5 py-1.5 rounded-xl bg-[#0F0F1A] border border-white/5 flex items-center justify-between text-[10.5px]">
+              <span className="text-zinc-400">Hora de eliminação:</span>
+              <span className="font-mono text-cyan-300 font-semibold">
+                Hoje às {new Date(Date.now() + durationHours * 3600 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
             </div>
           </div>
 
